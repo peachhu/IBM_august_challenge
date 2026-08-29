@@ -227,10 +227,14 @@ def evaluate_mission_readiness(
     overall = round(wx_dim.weighted + sw_dim.weighted + hist_dim.weighted, 3)
     rec = _recommendation(overall, lcc)
 
-    # Confidence: how much real data did we get?
+    # Confidence: how much real-time / verified data did we get?
+    # FIXED (Bug #5): "dataset" (static historical CSV, not live) previously
+    # counted the same as "api"/"combined" (live NASA DONKI). A dataset-only
+    # run could show HIGH confidence even with zero live data. Only live or
+    # combined sources count as a strong signal now; "dataset" alone does not.
     data_flags = [
         wx.source != "mock",
-        sw.data_source in ("api", "combined", "dataset"),
+        sw.data_source in ("api", "combined"),
         history_data.get("data_source") == "launch_library_2",
     ]
     conf_map = {3: "HIGH", 2: "MEDIUM", 1: "LOW", 0: "LOW"}

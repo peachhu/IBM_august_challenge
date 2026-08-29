@@ -72,6 +72,11 @@ class RuleResult:
     measured_value: float = 0.0
     limit_value: float = 0.0
     unit: str = ""
+    data_unavailable: bool = False  # True when we couldn't evaluate this rule
+                                     # due to missing data — kept separate from
+                                     # `violated` so missing data never inflates
+                                     # the risk score, but still surfaces as a
+                                     # warning for the user to check manually.
 
     def __str__(self) -> str:
         icon = "SCRUB" if self.severity == "SCRUB" else ("CAUTION" if self.severity == "CAUTION" else "OK")
@@ -104,7 +109,14 @@ class LCCResult:
 
     @property
     def ok_rules(self) -> list:
-        return [r for r in self.rules if not r.violated]
+        return [r for r in self.rules if not r.violated and not r.data_unavailable]
+
+    @property
+    def unavailable_rules(self) -> list:
+        """Rules that couldn't be evaluated due to missing data.
+        Not counted toward risk_score, but shown separately so the user
+        knows to check these manually — distinct from a true CAUTION/SCRUB."""
+        return [r for r in self.rules if r.data_unavailable]
 
     @property
     def risk_score(self) -> float:
@@ -130,6 +142,9 @@ class LCCResult:
         if self.is_caution:
             reasons = "; ".join(r.name for r in self.caution_rules)
             return f"CAUTION -- {reasons}"
+        if self.unavailable_rules:
+            names = "; ".join(r.name for r in self.unavailable_rules)
+            return f"GO -- but data unavailable for: {names} (verify manually)"
         return "All LCC rules satisfied (GO)"
 
     @property
@@ -337,10 +352,11 @@ def check_detached_anvil(
         return RuleResult(
             name="Detached Anvil Cloud",
             std_ref="NASA-STD-4010A §3.8",
-            description="Detached anvil present — age unknown, treat as CAUTION",
+            description="Detached anvil present — age unknown, check manually",
             rationale="Detached anvils retain charge for up to 3 hours post-separation.",
             severity="CAUTION",
-            violated=True,
+            violated=False,        # unknown data must not inflate the risk score
+            data_unavailable=True, # but still surfaced to the user as a warning
             measured_value=0.0,
             limit_value=180.0,
             unit=" min",
@@ -561,10 +577,11 @@ def check_wind_shear(
         return RuleResult(
             name="Upper-Level Wind Shear",
             std_ref="ER Rule W2",
-            description="Wind shear data not available — constraint not evaluated",
+            description="Wind shear data not available — constraint not evaluated, check manually",
             rationale="Excessive wind shear can overstress the vehicle during max-q.",
             severity="CAUTION",
-            violated=True,
+            violated=False,        # unknown data must not inflate the risk score
+            data_unavailable=True, # but still surfaced to the user as a warning
             measured_value=0.0,
             limit_value=40.0,
             unit=" kt",

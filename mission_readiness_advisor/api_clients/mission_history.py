@@ -28,14 +28,29 @@ def _parse_launch(raw: dict) -> dict:
     pad = (raw.get("pad") or {})
     location = (pad.get("location") or {})
     status = (raw.get("status") or {})
+
+    # FIXED (root cause of 0.0% scrub rate bug):
+    # `holdreason` is populated by LL2 when a launch attempt experienced a
+    # hold/scrub during that launch day, even if it eventually succeeded.
+    # This is the correct signal for "was this attempt delayed/scrubbed".
+    #
+    # The previous version checked status.abbrev in ("TBD","HOLD","TBC"),
+    # but those abbreviations only ever appear on *upcoming* / unresolved
+    # launches. This function processes the `launch/previous` endpoint,
+    # where every launch is already finalized as Success or Failure — so
+    # that condition could never match, guaranteeing scrub_rate = 0.0%
+    # for every site, every time, regardless of real history.
+    hold_reason = (raw.get("holdreason") or "").strip()
+
     return {
         "id": raw.get("id"),
         "name": raw.get("name", ""),
         "net": raw.get("net", ""),             # No-Earlier-Than date
-        "status_abbrev": status.get("abbrev", ""),  # TBD, GO, SUCCESS, FAILURE, HOLD
+        "status_abbrev": status.get("abbrev", ""),  # Success, Failure, Partial Failure, ...
         "status_name": status.get("name", ""),
-        "hold": status.get("abbrev") in ("TBD", "HOLD", "TBC"),
-        "success": status.get("abbrev") == "SUCCESS",
+        "hold": bool(hold_reason),              # FIXED: based on holdreason, not status_abbrev
+        "hold_reason": hold_reason,
+        "success": status.get("abbrev", "").lower() == "success",
         "pad_name": pad.get("name", ""),
         "location_name": location.get("name", ""),
         "rocket_name": ((raw.get("rocket") or {}).get("configuration") or {}).get("name", ""),
@@ -122,6 +137,24 @@ def historical_scrub_risk(
     total = len(launches)
     scrub_rate = len(scrubs) / total if total > 0 else 0.10
 
+    # NOTE ON DATA QUALITY: Launch Library 2's `holdreason` field exists but
+    # is sparsely populated on the free tier — it's typically only filled in
+    # for high-profile / heavily-reported missions, not routine launches.
+    # A scrub_rate of exactly 0.0% across a real sample almost certainly
+    # means "no holds were *recorded*", not "no holds occurred". Showing a
+    # bare 0% would overstate confidence, so we apply a conservative floor
+    # and flag it explicitly rather than presenting it as a clean measurement.
+    data_quality_note = ""
+    if len(scrubs) == 0 and total >= 10:
+        FLOOR = 0.08  # conservative industry-baseline floor, not a measurement
+        scrub_rate = FLOOR
+        data_quality_note = (
+            f"No hold/scrub records found in {total} sampled launches — "
+            f"Launch Library 2's free tier under-reports holds for routine "
+            f"missions, so a {FLOOR:.0%} conservative baseline is applied "
+            f"instead of an unverified 0%."
+        )
+
     # Seasonal: check if target month has more scrubs historically
     seasonal_modifier = 0.0
     if target_month:
@@ -135,13 +168,15 @@ def historical_scrub_risk(
             seasonal_modifier = round(month_rate - scrub_rate, 3)
 
     recent_scrubs = [
-        {"name": s["name"], "date": s["net"][:10], "status": s["status_name"]}
+        {"name": s["name"], "date": s["net"][:10], "status": s["status_name"],
+         "reason": s.get("hold_reason", "")}
         for s in scrubs[:5]
     ]
 
     notes = (
         f"Analysed {total} launches from '{pad_name}'. "
         f"Scrub/hold rate: {scrub_rate:.1%}. "
+        + (data_quality_note + " " if data_quality_note else "")
         + (f"This month historically {seasonal_modifier:+.1%} vs average. " if abs(seasonal_modifier) > 0.02 else "")
         + (f"Recent holds: {', '.join(s['name'] for s in recent_scrubs[:3])}" if recent_scrubs else "No recent holds in sample.")
     )
@@ -153,5 +188,7 @@ def historical_scrub_risk(
         "total_count": total,
         "recent_scrubs": recent_scrubs,
         "notes": notes,
-        "data_source": "launch_library_2",
+        # FIXED: mark as lower-confidence source when we had to apply the
+        # floor, so risk_engine's confidence scoring reflects the sparse data
+        "data_source": "launch_library_2_sparse" if data_quality_note else "launch_library_2",
     }

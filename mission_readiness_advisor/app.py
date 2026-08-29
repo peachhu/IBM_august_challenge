@@ -29,7 +29,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta, date
 
-from config import LAUNCH_SITES, NASA_API_KEY, OWM_API_KEY
+from config import LAUNCH_SITES, NASA_API_KEY, OWM_API_KEY, RISK_WEIGHTS
 from core.risk_engine import evaluate_mission_readiness, MissionRiskReport, DimensionScore, _level, _recommendation
 from core.lcc_rules import evaluate_lcc
 from core.space_weather_risk import evaluate_space_weather
@@ -128,14 +128,16 @@ def cached_evaluate(
         cloud_thickness_ft=float(cloud_thickness) if cloud_thickness > 0 else None,
     )
 
-    sw = evaluate_space_weather(mission_date)
-
+    # FIXED (Bug #3): don't pre-compute space weather here — passing a
+    # non-None space_weather_result made evaluate_mission_readiness() skip
+    # its own `if space_weather_result is None` branch entirely, so the
+    # live DONKI call never ran regardless of the checkbox. Let the engine
+    # own that decision so use_live_donki actually takes effect.
     report = evaluate_mission_readiness(
         mission_date=mission_date,
         site_key=site_key,
         site_config=site_cfg,
         weather_snapshot=wx,
-        space_weather_result=sw,
         use_live_donki=use_live,
         nasa_api_key=NASA_API_KEY,
     )
@@ -145,8 +147,8 @@ def cached_evaluate(
     report.dimensions[0] = DimensionScore(
         name="Weather",
         score=lcc.risk_score,
-        weight=0.45,
-        weighted=lcc.risk_score * 0.45,
+        weight=RISK_WEIGHTS["weather"],  # FIXED (Bug #6): was hardcoded 0.45
+        weighted=lcc.risk_score * RISK_WEIGHTS["weather"],
         level=_level(lcc.risk_score),
         summary=lcc.summary,
         factors=[r.description for r in lcc.rules if r.violated],
@@ -394,7 +396,9 @@ st.caption("Source: https://standards.nasa.gov/standard/NASA/NASA-STD-4010")
 if report.lcc_result:
     rows = []
     for r in report.lcc_result.rules:
-        if r.violated:
+        if getattr(r, "data_unavailable", False):
+            status = "UNKNOWN"
+        elif r.violated:
             status = "SCRUB" if r.severity == "SCRUB" else "CAUTION"
         else:
             status = "OK"
@@ -412,17 +416,20 @@ if report.lcc_result:
     def _style_status(val):
         if val == "SCRUB":   return "background-color: #fee2e2; color: #991b1b; font-weight: bold"
         if val == "CAUTION": return "background-color: #fef9c3; color: #854d0e; font-weight: bold"
+        if val == "UNKNOWN": return "background-color: #e5e7eb; color: #374151; font-weight: bold"
         return "background-color: #dcfce7; color: #166534"
-    styled = lcc_df.style.applymap(_style_status, subset=["Status"])
+    styled = lcc_df.style.map(_style_status, subset=["Status"])  # FIXED: applymap() removed in newer pandas
     st.dataframe(styled, hide_index=True, use_container_width=True)
 
     # Summary counts
     n_scrub   = sum(1 for r in report.lcc_result.rules if r.severity == "SCRUB"   and r.violated)
     n_caution = sum(1 for r in report.lcc_result.rules if r.severity == "CAUTION" and r.violated)
-    n_ok      = sum(1 for r in report.lcc_result.rules if not r.violated)
+    n_unknown = sum(1 for r in report.lcc_result.rules if getattr(r, "data_unavailable", False))
+    n_ok      = sum(1 for r in report.lcc_result.rules
+                     if not r.violated and not getattr(r, "data_unavailable", False))
     st.caption(
         f"15 rules evaluated — "
-        f"SCRUB: {n_scrub}  |  CAUTION: {n_caution}  |  OK: {n_ok}"
+        f"SCRUB: {n_scrub}  |  CAUTION: {n_caution}  |  UNKNOWN: {n_unknown}  |  OK: {n_ok}"
     )
 
 # ── Space Weather Summary ─────────────────────────────────────────────────────
