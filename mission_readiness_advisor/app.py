@@ -85,8 +85,15 @@ def cached_evaluate(
     temp_c: float,
     humidity: float,
     precip: float,
+    hail: bool,
     lightning: bool,
-    cloud_ceiling: float,
+    cumulonimbus: bool,
+    attached_anvil: bool,
+    detached_anvil: bool,
+    debris_cloud: bool,
+    tropical_storm: bool,
+    cumulus_top: float,
+    cloud_thickness: float,
     use_live: bool,
 ) -> MissionRiskReport:
     """Cache evaluation results for 5 minutes to avoid repeated API calls."""
@@ -97,15 +104,13 @@ def cached_evaluate(
         humidity_pct=humidity,
         wind_speed_ms=wind_knots / 1.94384,
         visibility_m=vis_miles * 1609.34,
-        weather_main="Thunderstorm" if lightning else ("Rain" if precip > 0 else "Clear"),
+        weather_main="Thunderstorm" if (lightning or cumulonimbus) else ("Rain" if precip > 0 else "Clear"),
         rain_1h_mm=precip,
         cloud_cover_pct=0.0,
         source="manual",
     )
-    # Infer cloud ceiling from cover
-    wx_ceil = None if cloud_ceiling <= 0 else cloud_ceiling
 
-    # Re-evaluate LCC with ceiling
+    # Full NASA-STD-4010A LCC evaluation
     lcc = evaluate_lcc(
         wind_speed_knots=wind_knots,
         visibility_miles=vis_miles,
@@ -113,9 +118,16 @@ def cached_evaluate(
         humidity_pct=humidity,
         is_raining=precip > 0,
         precipitation_mm_per_hour=precip,
+        hail_present=hail,
         lightning_within_10nm=lightning,
         lightning_last_30min=lightning,
-        cloud_ceiling_ft=wx_ceil,
+        cumulonimbus_within_20nm=cumulonimbus,
+        attached_anvil_in_path=attached_anvil,
+        detached_anvil_in_path=detached_anvil,
+        debris_cloud_in_path=debris_cloud,
+        tropical_storm_within_300nm=tropical_storm,
+        cumulus_top_ft=float(cumulus_top) if cumulus_top > 0 else None,
+        cloud_thickness_ft=float(cloud_thickness) if cloud_thickness > 0 else None,
     )
 
     sw = evaluate_space_weather(mission_date)
@@ -236,15 +248,30 @@ with st.sidebar:
     )
 
     st.divider()
-    st.subheader("🌦️ Surface Weather")
-    wind_knots = st.slider("Wind Speed (knots)", 0.0, 80.0, 8.0, 0.5)
-    vis_miles = st.slider("Visibility (miles)", 0.0, 15.0, 10.0, 0.5)
-    temp_c = st.slider("Temperature (°C)", -20.0, 50.0, 24.0, 0.5)
-    humidity = st.slider("Humidity (%)", 0, 100, 65)
-    precip = st.slider("Precipitation (mm/hr)", 0.0, 30.0, 0.0, 0.5)
-    lightning = st.checkbox("⚡ Lightning within 10 NM")
-    cloud_ceiling = st.number_input(
-        "Cloud Ceiling (ft AGL, 0 = unknown)", 0, 50000, 0, 500
+    st.subheader("🌦️ Surface Weather  (ER Rules)")
+    wind_knots = st.slider("Wind Speed (knots)  [W1 limit: 30 kt]", 0.0, 80.0, 8.0, 0.5)
+    vis_miles  = st.slider("Visibility (miles)  [W5 limit: 3 mi]", 0.0, 15.0, 10.0, 0.5)
+    temp_c     = st.slider("Temperature (°C)  [W3: -0.6 to 43.3°C]", -20.0, 50.0, 24.0, 0.5)
+    humidity   = st.slider("Humidity (%)  [W6 caution: >95%]", 0, 100, 65)
+    precip     = st.slider("Precipitation (mm/hr)  [W4 scrub: >=25]", 0.0, 50.0, 0.0, 0.5)
+    hail       = st.checkbox("Hail present (any size = SCRUB)  [W4]")
+    lightning  = st.checkbox("Lightning within 10 NM  [STD-4010A §3.1]")
+
+    st.divider()
+    st.subheader("NASA-STD-4010A Cloud Rules")
+    st.caption("Electrostatic / triggered-lightning criteria")
+    cumulonimbus   = st.checkbox("Cumulonimbus within 20 NM  [§3.3]")
+    attached_anvil = st.checkbox("Attached anvil in flight path  [§3.4/3.7]")
+    detached_anvil = st.checkbox("Detached anvil in flight path  [§3.8]")
+    debris_cloud   = st.checkbox("Debris cloud in flight path  [§3.5]")
+    tropical_storm = st.checkbox("Tropical storm within 300 NM  [§3.9]")
+    cumulus_top    = st.number_input(
+        "Cumulus cloud top (ft MSL, 0=none)  [§3.2 limit: 25,000 ft]",
+        0, 60000, 0, 1000
+    )
+    cloud_thickness = st.number_input(
+        "Cloud layer thickness (ft, 0=unknown)  [§3.6 limit: 4,500 ft]",
+        0, 30000, 0, 500
     )
 
     st.divider()
@@ -296,8 +323,15 @@ with st.spinner("🔍 Evaluating mission readiness…"):
             temp_c=temp_c,
             humidity=float(humidity),
             precip=precip,
+            hail=hail,
             lightning=lightning,
-            cloud_ceiling=float(cloud_ceiling),
+            cumulonimbus=cumulonimbus,
+            attached_anvil=attached_anvil,
+            detached_anvil=detached_anvil,
+            debris_cloud=debris_cloud,
+            tropical_storm=tropical_storm,
+            cumulus_top=float(cumulus_top),
+            cloud_thickness=float(cloud_thickness),
             use_live=use_live_donki,
         )
     except Exception as exc:
@@ -357,20 +391,41 @@ with c2:
 st.divider()
 
 # ── LCC Rule Table ────────────────────────────────────────────────────────────
-st.subheader("🌦️ Launch Commit Criteria Details")
+st.subheader("Launch Commit Criteria — NASA-STD-4010A + Eastern Range")
+st.caption("Source: https://standards.nasa.gov/standard/NASA/NASA-STD-4010")
 if report.lcc_result:
     rows = []
     for r in report.lcc_result.rules:
+        if r.violated:
+            status = "SCRUB" if r.severity == "SCRUB" else "CAUTION"
+        else:
+            status = "OK"
         rows.append({
+            "Status": status,
             "Rule": r.name,
-            "Status": "⛔ SCRUB" if (r.severity == "SCRUB" and r.violated)
-                      else ("⚠️ CAUTION" if r.violated else "✅ OK"),
+            "Std Ref": r.std_ref,
             "Measured": f"{r.measured_value:.1f}{r.unit}",
             "Limit": f"{r.limit_value:.1f}{r.unit}" if r.limit_value else "—",
             "Description": r.description,
+            "Rationale": r.rationale,
         })
     lcc_df = pd.DataFrame(rows)
-    st.dataframe(lcc_df, hide_index=True, use_container_width=True)
+    # Color-code by status
+    def _style_status(val):
+        if val == "SCRUB":   return "background-color: #fee2e2; color: #991b1b; font-weight: bold"
+        if val == "CAUTION": return "background-color: #fef9c3; color: #854d0e; font-weight: bold"
+        return "background-color: #dcfce7; color: #166534"
+    styled = lcc_df.style.applymap(_style_status, subset=["Status"])
+    st.dataframe(styled, hide_index=True, use_container_width=True)
+
+    # Summary counts
+    n_scrub   = sum(1 for r in report.lcc_result.rules if r.severity == "SCRUB"   and r.violated)
+    n_caution = sum(1 for r in report.lcc_result.rules if r.severity == "CAUTION" and r.violated)
+    n_ok      = sum(1 for r in report.lcc_result.rules if not r.violated)
+    st.caption(
+        f"15 rules evaluated — "
+        f"SCRUB: {n_scrub}  |  CAUTION: {n_caution}  |  OK: {n_ok}"
+    )
 
 # ── Space Weather Summary ─────────────────────────────────────────────────────
 st.subheader("☀️ Space Weather Summary")
