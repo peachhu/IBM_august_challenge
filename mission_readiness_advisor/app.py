@@ -15,10 +15,8 @@ import sys
 import os
 from pathlib import Path
 
-# ── Fix sys.path so all internal modules resolve correctly ─────────────────
-# This must happen BEFORE any internal imports, regardless of cwd.
-_HERE = Path(__file__).resolve().parent          # .../mission_readiness_advisor
-_PARENT = _HERE.parent                           # .../IBM_august_challenge
+_HERE = Path(__file__).resolve().parent         
+_PARENT = _HERE.parent                          
 for _p in [str(_HERE), str(_PARENT)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)

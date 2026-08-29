@@ -101,7 +101,6 @@ ml_ready_dataset.csv                # ML-ready feature dataset
 
 ### 1. Install Dependencies
 ```bash
-cd IBM_august_challenge/mission_readiness_advisor
 pip install -r requirements.txt
 ```
 
@@ -133,11 +132,11 @@ The app works without any API keys — it uses:
 
 IBM Bob (AI-assisted development tool) was the **primary development tool** throughout this project:
 
-- **Architecture design**: Bob helped design the 3-layer risk architecture and suggested the weighted aggregation approach
-- **Code generation**: All modules (`lcc_rules.py`, `risk_engine.py`, `app.py`, etc.) were created with Bob
-- **Integration guidance**: Bob provided watsonx.ai SDK integration patterns and prompt engineering for Granite
-- **Debugging**: Bob identified and fixed data type issues in the ETL pipeline (`etl_pipeline.py`)
-- **Testing**: Bob suggested edge cases for LCC rule validation
+- **Architecture design**: Bob helped design the 3-layer risk architecture and suggested the weighted aggregation approach.
+- **Code generation**: All modules (`lcc_rules.py`, `risk_engine.py`, `app.py`, etc.) were created with Bob base on the data we have gather.
+- **Integration guidance**: Bob provided watsonx.ai SDK integration patterns and prompt engineering for Granite.
+- **Debugging**: Bob identified and fixed data type issues in the ETL pipeline (`etl_pipeline.py`).
+- **Testing**: Bob suggested edge cases for LCC rule validation.
 
 ---
 
@@ -172,4 +171,4 @@ IBM Bob (AI-assisted development tool) was the **primary development tool** thro
 
 ---
 
-*IBM August Challenge 2025 · Space Exploration Theme*
+*IBM August Challenge 2026 · Space Exploration Theme*
