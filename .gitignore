@@ -2,4 +2,13 @@ ml_ready_dataset.csv
 ml_ready_dataset_1.csv
 solar_wind.csv
 pipeline_output.txt
+ARCHITECTURE.md
 !Datasets/sample_data.csv
+.env
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

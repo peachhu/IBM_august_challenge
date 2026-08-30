@@ -176,7 +176,7 @@ def evaluate_mission_readiness(
         extra_kp = None
         extra_flare = None
         if use_live_donki:
-            live = get_live_space_weather(mission_date, api_key=nasa_api_key)
+            live = get_live_space_weather(mission_date, nasa_api_key)
             extra_kp = live.get("kp_max")
             extra_flare = live.get("flare_class")
         space_weather_result = evaluate_space_weather(
