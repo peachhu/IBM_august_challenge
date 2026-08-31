@@ -300,7 +300,7 @@ if not run_btn:
                     "**Launch Commit Criteria** (wind, visibility, lightning, etc.)")
     with col2:
         st.markdown("### ☀️ Space Weather\nGeomagnetic storms, solar flares, CME events "
-                    "from **NOAA DONKI** + historical datasets (2023–2025)")
+                    "from **NASA DONKI** + historical datasets (2023–2025)")
     with col3:
         st.markdown("### 📚 History\nHistorical scrub rate from **Launch Library 2 API** "
                     "— seasonal patterns at this launch site")
