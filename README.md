@@ -53,9 +53,9 @@ The three scores are combined into a single **Delay Risk %** with a **GO / CAUTI
 
 ## 🤖 AI Approach
 
-1. **Rule-Based Engine** (`lcc_rules.py`): Implements 15 KSC Launch Commit Criteria as deterministic rules per **NASA-STD-4010B (2026)** + Eastern Range — no ML needed, 100% explainable. Rules that cannot be evaluated due to missing data are flagged as `data_unavailable` rather than being counted as violations, preventing spurious NO-GO signals.
+1. **Rule-Based Engine** (`lcc_rules.py`): Implements 15 KSC Launch Commit Criteria as deterministic rules — no ML needed, 100% explainable. Rules that cannot be evaluated due to missing data are flagged as `data_unavailable` rather than being counted as violations, preventing spurious NO-GO signals.
 
-2. **Physics-Based Space Weather Scoring** (`space_weather_risk.py`): Scores space weather risk using historical CSV datasets (solar flares, geomagnetic storms, CME events, HSS) supplemented by live NASA DONKI API data. Uses physics-based risk mapping for Kp/G-level, flare class, CME speed, and high-speed streams.
+2. **ML-Enhanced Space Weather** (`space_weather_risk.py`): Loads pre-trained feature data from `ml_ready_dataset.csv` (trained with XGBoost in `train_fixed.ipynb`). Uses physics-based risk mapping for Kp, flare class, CME speed, and high-speed streams.
 
 3. **IBM Granite LLM** (`llm_advisor.py`): Receives the risk breakdown as a structured JSON prompt → generates a human-readable advisory briefing via watsonx.ai. Falls back to a rule-based text template when credentials are unavailable.
 
@@ -124,11 +124,11 @@ streamlit run mission_readiness_advisor/app.py
 ```
 Open http://localhost:8501 in your browser.
 
-### 4. Live API Support
-- **NASA DONKI API** — confirmed working with a personal API key from [api.nasa.gov](https://api.nasa.gov/) (free). The app defaults to `DEMO_KEY` which is rate-limited; add your own key in `.env` for reliable real-time space weather data.
-- **OpenWeatherMap API** — integrated but **not required**. If no key is provided, use the manual weather sliders in the sidebar instead. Live OWM data has not been fully verified in all environments, so manual input is the recommended path for demo purposes.
-- **watsonx.ai (IBM Granite)** — optional. Without credentials the app falls back to a rule-based advisory template automatically.
-
+### 4. Without API Keys (Demo Mode)
+The app works without any API keys — it uses:
+- Manual weather sliders (no OWM needed)
+- Historical dataset files for space weather (no DONKI needed); `NASA_API_KEY` defaults to `DEMO_KEY`
+- Rule-based text advisory (no watsonx needed)
 ---
 
 ## 🔑 How IBM Bob Was Used
@@ -139,7 +139,7 @@ IBM Bob (AI-assisted development tool) was the **primary development tool** thro
 - **Code generation**: All modules (`lcc_rules.py`, `risk_engine.py`, `app.py`, etc.) were created with Bob based on the data we gathered.
 - **Integration guidance**: Bob provided watsonx.ai SDK integration patterns and prompt engineering for Granite.
 - **Debugging**: Bob identified the root causes of all four data-accuracy bugs and guided their fixes.
-- **Documentation**: Bob authored and maintained this README, ARCHITECTURE.md, and TEST_CASES.md.
+- **Documentation**: Bob authored and maintained this README.md
 
 ---
 
@@ -161,7 +161,7 @@ IBM Bob (AI-assisted development tool) was the **primary development tool** thro
 
 ## 📊 Selected Challenge Theme
 
-**Space Exploration** — This project directly supports the Space Exploration theme by building an AI-powered launch readiness advisor that fuses real space weather intelligence, surface weather rules, and historical mission data to help mission directors make safe, data-driven GO/NO-GO launch decisions.
+**August Challenge Theme - Advance Space Exploration with AI** — This project directly supports the Space Exploration theme by building an AI-powered launch readiness advisor that fuses real space weather intelligence, surface weather rules, and historical mission data to help mission directors make safe, data-driven GO/CAUTIONS/NO-GO launch decisions.
 
 ---
 
