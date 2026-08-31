@@ -25,7 +25,7 @@ except ImportError:
     from mission_readiness_advisor.config import NASA_API_KEY
 
 _DONKI_BASE = "https://api.nasa.gov/DONKI"
-_TIMEOUT = 12  # seconds
+_TIMEOUT = 20          # seconds — NASA can be slow under load
 
 
 # ─── Helper ──────────────────────────────────────────────────────────────────
@@ -43,16 +43,29 @@ def _date_range(target_date: str | datetime,
 
 
 def _get(endpoint: str, params: dict, api_key: str) -> list | dict | None:
+    """
+    GET a DONKI endpoint.  Uses a longer connect+read timeout so NASA's
+    occasionally-slow API has enough time to respond.  503 / 429 / timeout
+    are treated as graceful fallbacks -- the caller uses dataset data instead.
+
+    Return value:
+      - list / dict  : success
+      - []           : API replied but returned no events (normal / quiet sun)
+      - None         : server error / unreachable -- caller falls back to dataset
+    """
     params["api_key"] = api_key or NASA_API_KEY
+    url = f"{_DONKI_BASE}/{endpoint}"
     try:
-        resp = requests.get(
-            f"{_DONKI_BASE}/{endpoint}",
-            params=params,
-            timeout=_TIMEOUT,
-        )
+        # connect timeout=10 s, read timeout=_TIMEOUT s
+        resp = requests.get(url, params=params, timeout=(10, _TIMEOUT))
         if resp.status_code == 200:
             return resp.json()
-        print(f"[DONKI] {endpoint} → HTTP {resp.status_code}")
+        # 503 = NASA maintenance/overload, 429 = rate-limit (DEMO_KEY)
+        # both are expected and handled gracefully via dataset fallback
+        print(f"[DONKI] {endpoint} HTTP {resp.status_code} -- using dataset fallback")
+        return None
+    except requests.exceptions.Timeout:
+        print(f"[DONKI] {endpoint} timed out -- using dataset fallback")
         return None
     except Exception as exc:
         print(f"[DONKI] {endpoint} request failed: {exc}")
@@ -104,12 +117,18 @@ def get_max_flare_class(target_date: str | datetime,
 
 def get_geomagnetic_storms(target_date: str | datetime,
                            look_back_days: int = 7,
-                           api_key: str = "") -> list[dict]:
-    """Return list of GST events near the target date."""
+                           api_key: str = "") -> list[dict] | None:
+    """
+    Return list of GST events near the target date.
+    Returns None (not []) when the API call itself failed,
+    so callers can distinguish "no storms" from "API unavailable".
+    """
     start, end = _date_range(target_date, look_back_days, look_ahead_days=1)
     raw = _get("GST", {"startDate": start, "endDate": end}, api_key)
+    if raw is None:
+        return None   # API error — caller should fall back gracefully
     if not raw:
-        return []
+        return []     # API succeeded but found no events
     events = []
     for g in raw:
         kp_list = g.get("allKpIndex", []) or []
